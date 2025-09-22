@@ -1,8 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -14,40 +10,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
-modal User{
-  id String @id @default(uuid())
-  email String
+model User {
+  id      String   @id @default(uuid())
+  email   String
   provider Provider
   streams Stream[]
   upvotes Upvote[]
 }
 
-
-
-enum Provider{
+enum Provider {
   Google
 }
 
-modal Stream{
-   id String @id @default(uuid())
-   type StreamType
-   active Boolean @default(true)
-   upvotes Upvote[]
-   userID String
-   userID User @relation(fileds :[userId],references:[id])
+model Stream {
+  id          String     @id @default(uuid())
+  type        StreamType
+  url         String
+  extractedId String
+  active      Boolean    @default(true)
+  upvotes     Upvote[]
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
 }
 
-StreamType{
+enum StreamType {
   Spotify
   Youtube
 }
 
-moal Upvote{
-  id String @id @default(uuid())
-  userId String 
+model Upvote {
+  id       String  @id @default(uuid())
+  userId   String
   streamId String
-  user User @relation(fileds :[userId],references:[id])
-  stream Stream @relation(fileds :[streamId],references:[id])
-@@unique ([userID,streamId])
+  user     User    @relation(fields: [userId], references: [id])
+  stream   Stream  @relation(fields: [streamId], references: [id])
+
+  @@unique([userId, streamId])
 }
