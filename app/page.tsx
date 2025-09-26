@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { AppBar } from "./components/Appbar";
+import { Redirect } from "./components/Redirect";
 
 export default function HomePage() {
   const features = [
@@ -94,6 +95,7 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-background">
    <AppBar/>
+   <Redirect/>
 
       {/* Hero Section */}
       <section className="pt-32 pb-20 px-4">
