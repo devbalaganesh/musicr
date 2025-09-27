@@ -35,12 +35,12 @@ export default function DashboardPage() {
   const [isPlaying, setIsPlaying] = useState(true)
   const [viewerCount, setViewerCount] = useState(0)
 
-  const REFRESH_INTERVAL_MS = 10000
+  const REFRESH_INTERVAL_MS =1* 10000
 
   // Fetch all streams from backend
   const fetchStreams = async () => {
     try {
-      const res = await axios.get("/api/streams", { withCredentials: true })
+      const res = await axios.get('/api/streams?createrId', { withCredentials: true })
       if (res.data && Array.isArray(res.data)) {
         setQueue(
           res.data.map((stream: any) => ({
