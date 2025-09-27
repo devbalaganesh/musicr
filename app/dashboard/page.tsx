@@ -123,12 +123,33 @@ useEffect(() => {
 
  
   const handleVote = (id: string, direction: "up" | "down") => {
-    setQueue((prev) =>
-      prev
-        .map((item) => (item.id === id ? { ...item, votes: item.votes + (direction === "up" ? 1 : -1) } : item))
-        .sort((a, b) => b.votes - a.votes),
-    )
-  }
+  // 1. Update the local queue
+  setQueue((prev) => {
+    // Update the votes for the specific item
+    const updatedQueue = prev.map((item) => {
+      if (item.id === id) {
+        const voteChange = direction === "up" ? 1 : -1;
+        return { ...item, votes: item.votes + voteChange };
+      }
+      return item;
+    });
+
+    // Sort the queue so items with more votes come first
+    updatedQueue.sort((a, b) => b.votes - a.votes);
+
+    return updatedQueue;
+  });
+
+  // 2. Send the vote to the server
+  fetch("/api/strems/upvotes", {
+    method: "POST", // always specify method
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ streamId: id }),
+  });
+};
+
 
   const handleSubmit = () => {
     if (videoPreview) {

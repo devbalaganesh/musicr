@@ -38,6 +38,9 @@ await prismaClient.upvote.delete({
 }
 
 )
+return NextResponse.json({
+    message:"Done!"
+})
 
 }
 

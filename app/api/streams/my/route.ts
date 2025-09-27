@@ -26,6 +26,12 @@ const streams = await prismaClient.stream.findMany({
             select:{
                 upvotes:true
             }
+        },
+        upvotes:{
+            where:{
+                        userId:user.id
+            }
+            
         }
       }
     });

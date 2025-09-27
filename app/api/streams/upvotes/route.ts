@@ -35,6 +35,9 @@ await prismaClient.upvote.create({
 }
 
 )
+return NextResponse.json({
+    message:"Done!"
+})
 
 }
 
