@@ -13,9 +13,7 @@ export async function GET(req: NextRequest) {
 
   if (!user) {
     return NextResponse.json(
-      {
-        message: "Unauthorized",
-      },
+      { message: "Unauthorized" },
       { status: 403 }
     );
   }
@@ -28,13 +26,19 @@ export async function GET(req: NextRequest) {
           upvotes: true,
         },
       },
+      upvotes: {
+        where: {
+          userId: user.id, 
+        },
+      },
     },
   });
 
   return NextResponse.json({
     streams: streams.map(({ _count, ...rest }) => ({
       ...rest,
-      votes: _count.upvotes, 
+      votes: _count.upvotes,
+      haveUpvoted :rest.upvotes.length ? true:false
     })),
   });
 }
