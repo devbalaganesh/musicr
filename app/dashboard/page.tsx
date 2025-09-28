@@ -5,16 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  ChevronUp,
-  ChevronDown,
-  Play,
-  Pause,
-  Users,
-  Clock,
-  Music,
-  Share2,
-} from "lucide-react"
+import { signOut } from "next-auth/react"
+import { ChevronUp, ChevronDown, Play, Pause, Users, Clock, Music, Share2, LogOut } from "lucide-react"
 import axios from "axios"
 
 interface QueueItem {
@@ -35,16 +27,18 @@ export default function DashboardPage() {
   const [isPlaying, setIsPlaying] = useState(true)
   const [viewerCount, setViewerCount] = useState(0)
 
-  const REFRESH_INTERVAL_MS =1* 10000
+  const REFRESH_INTERVAL_MS = 10000
 
-  // Fetch all streams from backend
+  // Fetch streams from backend
   const fetchStreams = async () => {
     try {
-      const res = await axios.get('/api/streams?createrId', { withCredentials: true })
+      const res = await axios.get("/api/streams/my", { withCredentials: true })
+      // DEBUG log:
+      console.log("fetched data", res.data)
       if (res.data && Array.isArray(res.data)) {
         setQueue(
           res.data.map((stream: any) => ({
-            id: stream.id,
+            id: stream.id || stream._id || String(Date.now()),
             title: stream.title || "Unknown Title",
             artist: stream.artist || "Unknown Artist",
             thumbnail: stream.thumbnail || "/placeholder.svg",
@@ -54,6 +48,8 @@ export default function DashboardPage() {
             youtubeId: stream.youtubeId || "",
           }))
         )
+      } else {
+        setQueue([])
       }
     } catch (error) {
       console.error("Failed to fetch streams:", error)
@@ -66,12 +62,22 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [])
 
+  // DEBUG: Log the queue state
+  useEffect(() => {
+    console.log("Queue state:", queue)
+  }, [queue])
+
+  // Random viewer count (demo)
   useEffect(() => {
     const interval = setInterval(() => {
       setViewerCount((prev) => Math.max(0, prev + Math.floor(Math.random() * 10) - 5))
     }, 3000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleLogout = async () => {
+    await signOut({ callbackUrl: "/" })
+  }
 
   const extractYouTubeId = (url: string) => {
     const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\n?#]+)/i
@@ -87,7 +93,7 @@ export default function DashboardPage() {
         id: Date.now().toString(),
         title: "New Song",
         artist: "Unknown Artist",
-        thumbnail: `/placeholder.svg?height=120&width=120&query=music video thumbnail`,
+        thumbnail: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
         duration: "3:30",
         votes: 0,
         submittedBy: "You",
@@ -122,11 +128,7 @@ export default function DashboardPage() {
 
   const handleVote = async (id: string, direction: "up" | "down") => {
     try {
-      await axios.post(
-        "/api/streams/upvote",
-        { id, direction },
-        { withCredentials: true }
-      )
+      await axios.post("/api/streams/upvote", { id, direction }, { withCredentials: true })
       setQueue((prev) =>
         prev
           .map((item) =>
@@ -160,17 +162,17 @@ export default function DashboardPage() {
   }
 
   const currentSong = queue[0] || {
+    id: "",
     title: "No song playing",
     artist: "",
-    youtubeId: "",
     thumbnail: "",
     duration: "0:00",
     votes: 0,
     submittedBy: "",
-    id: "",
+    youtubeId: "",
   }
 
-  const upNext = queue.slice(1).sort((a, b) => b.votes - a.votes)
+  const upNext = [...queue].slice(1).sort((a, b) => b.votes - a.votes)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -203,13 +205,16 @@ export default function DashboardPage() {
               <Share2 className="w-4 h-4 mr-2" />
               Share
             </Button>
+            <Button onClick={handleLogout} size="sm" variant="destructive" className="flex items-center gap-2">
+              <LogOut className="w-4 h-4" /> Logout
+            </Button>
           </div>
         </div>
       </header>
 
       {/* Main */}
       <main className="container mx-auto px-4 py-8 grid lg:grid-cols-3 gap-8">
-        {/* Left column */}
+        {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Now Playing */}
           <Card className="p-6 bg-card border-border glow-primary">
@@ -260,7 +265,6 @@ export default function DashboardPage() {
                   value={youtubeUrl}
                   onChange={(e) => handleUrlChange(e.target.value)}
                   className="flex-1 bg-input border-border"
-                  aria-label="YouTube URL input"
                 />
                 <Button
                   onClick={handleSubmit}
@@ -290,29 +294,70 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Right column */}
+        {/* Right Column */}
         <div className="space-y-6">
           {/* Up Next */}
+<Card className="p-6 bg-card border-border">
+  <div className="flex items-center justify-between mb-4">
+    <h2 className="text-lg font-semibold flex items-center gap-2">
+      <Play className="w-5 h-5 text-accent" /> Up Next
+    </h2>
+    <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">
+      {upNext.length} songs
+    </Badge>
+  </div>
+  <div className="space-y-3 max-h-[300px] overflow-y-auto">
+    {upNext.length === 0 && <div className="text-muted-foreground">No upcoming songs.</div>}
+    {upNext.map((item) => (
+      <Card
+        key={item.id}
+        className="p-4 bg-muted/50 border-border hover:bg-muted/80 transition-colors flex gap-3"
+      >
+        <img src={item.thumbnail} alt={item.title} className="w-12 h-12 rounded-lg object-cover" />
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-sm text-balance truncate">{item.title}</h4>
+          <p className="text-xs text-muted-foreground truncate">{item.artist}</p>
+          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+            by {item.submittedBy} · {item.duration}
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleVote(item.id, "up")}
+            className="h-6 w-6 p-0 hover:bg-accent/20 hover:text-accent"
+          >
+            <ChevronUp className="w-3 h-3" />
+          </Button>
+          <span className="text-xs font-bold text-accent font-mono">{item.votes}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleVote(item.id, "down")}
+            className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </Button>
+        </div>
+      </Card>
+    ))}
+  </div>
+</Card>
+
+          {/* All Streams */}
           <Card className="p-6 bg-card border-border">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Play className="w-5 h-5 text-accent" /> Up Next
-              </h2>
-              <Badge variant="secondary" className="bg-accent/20 text-accent border-accent/30">
-                {upNext.length} songs
-              </Badge>
-            </div>
+            <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
+              <Play className="w-5 h-5 text-accent" /> All Streams
+            </h2>
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {upNext.map((item, index) => (
+              {queue.length === 0 && <div className="text-muted-foreground">No streams found.</div>}
+              {queue.map((item) => (
                 <Card
                   key={item.id}
                   className="p-4 bg-muted/50 border-border hover:bg-muted/80 transition-colors flex gap-3"
                 >
-                  <img
-                    src={item.thumbnail}
-                    alt={item.title}
-                    className="w-12 h-12 rounded-lg object-cover"
-                  />
+                  <img src={item.thumbnail} alt={item.title} className="w-12 h-12 rounded-lg object-cover" />
                   <div className="flex-1 min-w-0">
                     <h4 className="font-medium text-sm text-balance truncate">{item.title}</h4>
                     <p className="text-xs text-muted-foreground truncate">{item.artist}</p>
@@ -326,7 +371,6 @@ export default function DashboardPage() {
                       variant="ghost"
                       onClick={() => handleVote(item.id, "up")}
                       className="h-6 w-6 p-0 hover:bg-accent/20 hover:text-accent"
-                      aria-label={`Upvote ${item.title}`}
                     >
                       <ChevronUp className="w-3 h-3" />
                     </Button>
@@ -336,7 +380,6 @@ export default function DashboardPage() {
                       variant="ghost"
                       onClick={() => handleVote(item.id, "down")}
                       className="h-6 w-6 p-0 hover:bg-destructive/20 hover:text-destructive"
-                      aria-label={`Downvote ${item.title}`}
                     >
                       <ChevronDown className="w-3 h-3" />
                     </Button>
@@ -344,32 +387,6 @@ export default function DashboardPage() {
                 </Card>
               ))}
             </div>
-
-            {/* All Streams */}
-            <Card className="p-4 bg-card border-border mt-6">
-              <h2 className="text-lg font-semibold mb-4">All Streams</h2>
-              <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                {queue.map((item, index) => (
-                  <Card
-                    key={item.id}
-                    className="p-3 bg-muted/50 border-border hover:bg-muted/80 transition-colors flex gap-3"
-                  >
-                    <img
-                      src={item.thumbnail}
-                      alt={item.title}
-                      className="w-12 h-12 rounded-lg object-cover"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm text-balance truncate">{item.title}</h4>
-                      <p className="text-xs text-muted-foreground truncate">{item.artist}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Submitted by: {item.submittedBy} · {item.duration}
-                      </p>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            </Card>
           </Card>
         </div>
       </main>
