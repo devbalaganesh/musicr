@@ -1,56 +1,63 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { ChevronUp, ChevronDown, Play, Pause, Users, Clock, Music } from "lucide-react"
-import axios from "axios"
-import YouTube from "react-youtube-embed";interface QueueItem {
-  id: string
-  title: string
-  artist: string
-  thumbnail: string
-  duration: string
-  votes: number
-  videoId: string
-  submittedBy: string
-  hasVoted?: "up" | "down" | null
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ChevronUp, ChevronDown, Play, Pause, Users, Clock, Music } from "lucide-react";
+import axios from "axios";
+
+interface QueueItem {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  duration: string;
+  votes: number;
+  videoId: string;
+  submittedBy: string;
+  hasVoted?: "up" | "down" | null;
 }
 
 interface VideoPreview {
-  id: string
-  title: string
-  artist: string
-  thumbnail: string
-  duration: string
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  duration: string;
 }
 
 export default function MusicVotingApp() {
-  const [youtubeUrl, setYoutubeUrl] = useState("")
-  const [videoPreview, setVideoPreview] = useState<VideoPreview | null>(null)
-  const [currentPlaying, setCurrentPlaying] = useState<QueueItem | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [queue, setQueue] = useState<QueueItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [videoPreview, setVideoPreview] = useState<VideoPreview | null>(null);
+  const [currentPlaying, setCurrentPlaying] = useState<QueueItem | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const sortQueue = (songs: QueueItem[]) => [...songs].sort((a, b) => b.votes - a.votes);
 
   useEffect(() => {
-    fetchStreams()
-  }, [])
+    fetchStreams();
+  }, []);
 
   const fetchStreams = async () => {
     try {
-      setIsLoading(true)
-      setError(null)
-      const response = await axios.get("/api/streams/my")
-      let streamsData: QueueItem[] = []
+      setIsLoading(true);
+      setError(null);
 
-      if (Array.isArray(response.data)) streamsData = response.data
-      else if (response.data?.streams) streamsData = response.data.streams
-      else if (response.data?.data) streamsData = response.data.data
-      else {
+      const response = await axios.get("/api/streams", {
+        params: { creatorId: "6e210da3-fe63-4f5f-a9e0-37c1b1efccb4" },
+      });
+
+      let streamsData: QueueItem[] = [];
+      if (Array.isArray(response.data)) streamsData = response.data;
+      else if (response.data?.streams) streamsData = response.data.streams;
+      else if (response.data?.data) streamsData = response.data.data;
+
+      if (streamsData.length === 0) {
         streamsData = [
           {
             id: "1",
@@ -74,13 +81,13 @@ export default function MusicVotingApp() {
             submittedBy: "RockFan2000",
             hasVoted: null,
           },
-        ]
+        ];
       }
 
-      setQueue(streamsData.sort((a, b) => b.votes - a.votes))
+      setQueue(sortQueue(streamsData));
     } catch (err) {
-      console.error("Failed to fetch streams:", err)
-      setError("Failed to load streams. Using demo data.")
+      console.error("Failed to fetch streams:", err);
+      setError("Failed to load streams. Using demo data.");
       setQueue([
         {
           id: "1",
@@ -104,25 +111,25 @@ export default function MusicVotingApp() {
           submittedBy: "RockFan2000",
           hasVoted: null,
         },
-      ])
+      ]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    if (!currentPlaying && queue.length > 0) setCurrentPlaying(queue[0])
-  }, [queue, currentPlaying])
+    if (!currentPlaying && queue.length > 0) setCurrentPlaying(queue[0]);
+  }, [queue, currentPlaying]);
 
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/;
-    const match = url.match(regex)
-    return match ? match[1] : null
-  }
+    const match = url.match(regex);
+    return match ? match[1] : null;
+  };
 
   const handleUrlChange = (url: string) => {
-    setYoutubeUrl(url)
-    const videoId = extractVideoId(url)
+    setYoutubeUrl(url);
+    const videoId = extractVideoId(url);
     if (videoId) {
       setVideoPreview({
         id: videoId,
@@ -130,83 +137,91 @@ export default function MusicVotingApp() {
         artist: "Sample Artist",
         thumbnail: `/placeholder.svg?height=120&width=120&query=youtube video thumbnail`,
         duration: "3:45",
-      })
-    } else setVideoPreview(null)
-  }
+      });
+    } else {
+      setVideoPreview(null);
+    }
+  };
 
-const handleSubmitSong = async () => {
-  if (!youtubeUrl) return;
+  const handleSubmitSong = async () => {
+    if (!youtubeUrl) return;
 
-  // Extract video ID
-  const videoId = extractVideoId(youtubeUrl);
-  if (!videoId) {
-    alert("Invalid YouTube URL");
-    return;
-  }
+    const videoId = extractVideoId(youtubeUrl);
+    if (!videoId) {
+      alert("Invalid YouTube URL");
+      return;
+    }
 
-try {
-    const response = await fetch("/api/streams", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        createrId: userId,   // ✅ must match schema
-        url: youtubeUrl,     // backend extracts videoId itself
-      }),
-    });
-    if (!response.ok) throw new Error("Failed to submit song");
+    try {
+      // POST new stream
+      const postResponse = await fetch("/api/streams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          creatorId: "6e210da3-fe63-4f5f-a9e0-37c1b1efccb4",
+          url: youtubeUrl,
+        }),
+      });
 
-    const updatedQueue: QueueItem[] = await response.json();
-    setQueue(updatedQueue.sort((a, b) => b.votes - a.votes));
-    setYoutubeUrl("");
-    setVideoPreview(null);
-  } catch (err) {
-    console.error("Failed to submit song:", err);
-    alert("Failed to submit the song. Please try again.");
-  }
-};
+      if (!postResponse.ok) throw new Error("Failed to submit song");
 
+      // Fetch updated streams queue
+      const getResponse = await fetch(
+        `/api/streams?creatorId=6e210da3-fe63-4f5f-a9e0-37c1b1efccb4`
+      );
+      if (!getResponse.ok) throw new Error("Failed to fetch updated queue");
+
+      const updatedQueue = await getResponse.json();
+      setQueue(sortQueue(updatedQueue));
+      setYoutubeUrl("");
+      setVideoPreview(null);
+    } catch (err) {
+      console.error("Failed to submit song or refresh queue:", err);
+      alert("Failed to submit or refresh the song queue. Please try again.");
+    }
+  };
 
   const handleVote = async (streamID: string, voteType: "up" | "down") => {
     try {
-      const endpoint = voteType === "up" ? "/api/streams/upvotes" : "/api/streams/downvotes"
-      await axios.post(endpoint, { streamID })
+      const endpoint = voteType === "up" ? "/api/streams/upvotes" : "/api/streams/downvotes";
+      await axios.post(endpoint, { streamID });
 
       setQueue((prev) =>
-        prev
-          .map((song) => {
+        sortQueue(
+          prev.map((song) => {
             if (song.id === streamID) {
-              let newVotes = song.votes
-              let newHasVoted: "up" | "down" | null = voteType
+              let newVotes = song.votes;
+              let newHasVoted: "up" | "down" | null = voteType;
 
               if (song.hasVoted === voteType) {
-                newVotes += voteType === "up" ? -1 : 1
-                newHasVoted = null
+                newVotes += voteType === "up" ? -1 : 1;
+                newHasVoted = null;
               } else if (song.hasVoted) {
-                newVotes += voteType === "up" ? 2 : -2
+                newVotes += voteType === "up" ? 2 : -2;
               } else {
-                newVotes += voteType === "up" ? 1 : -1
+                newVotes += voteType === "up" ? 1 : -1;
               }
 
-              return { ...song, votes: newVotes, hasVoted: newHasVoted }
+              return { ...song, votes: newVotes, hasVoted: newHasVoted };
             }
-            return song
+            return song;
           })
-          .sort((a, b) => b.votes - a.votes)
-      )
+        )
+      );
     } catch (err) {
-      console.error(`Failed to ${voteType}vote:`, err)
+      console.error(`Failed to ${voteType}vote:`, err);
     }
-  }
+  };
 
   const playNext = () => {
-    const index = queue.findIndex((s) => s.id === currentPlaying?.id)
-    if (index < queue.length - 1) setCurrentPlaying(queue[index + 1])
-  }
+    const index = queue.findIndex((s) => s.id === currentPlaying?.id);
+    if (index < queue.length - 1) setCurrentPlaying(queue[index + 1]);
+  };
 
   const playPrevious = () => {
-    const index = queue.findIndex((s) => s.id === currentPlaying?.id)
-    if (index > 0) setCurrentPlaying(queue[index - 1])
-  }
+    const index = queue.findIndex((s) => s.id === currentPlaying?.id);
+    if (index > 0) setCurrentPlaying(queue[index - 1]);
+  };
 
   if (isLoading)
     return (
@@ -216,7 +231,7 @@ try {
           <p>Loading streams...</p>
         </div>
       </div>
-    )
+    );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -341,5 +356,5 @@ try {
         </div>
       </div>
     </div>
-  )
+  );
 }

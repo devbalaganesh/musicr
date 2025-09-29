@@ -1,81 +1,93 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prismaClient } from "../../lib/db";
-import youtubesearchapi from "youtube-search-api"
-import YouTube from "react-youtube-embed";
-const YT_REGEX = /^(?:(?:https?:)?\/\/)?(?:www\.)?(?:m\.)?(?:youtu(?:be)?\.com\/(?:v\/|embed\/|watch(?:\/|\?v=))|youtu\.be\/)((?:\w|-){11})(?:\S+)?$/;  
+import youtubesearchapi from "youtube-search-api";
+
+const YT_REGEX =
+  /^(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/))([a-zA-Z0-9_-]{11})(?:\S+)?$/;
 
 const CreateStreamsSchema = z.object({
-  createrId: z.string(),
-  url: z.string(), 
+  creatorId: z.string(),
+  url: z.string(),
 });
 
 export async function POST(req: NextRequest) {
   try {
-    const data = CreateStreamsSchema.parse(await req.json());
+    const rawData = await req.json();
+    console.log("Received POST body:", rawData);
+
+    const data = CreateStreamsSchema.parse(rawData);
 
     const match = data.url.match(YT_REGEX);
     if (!match) {
+      return NextResponse.json({ message: "Invalid YouTube URL" }, { status: 400 });
+    }
+    const extractedId = match[1];
+
+    let videoDetails;
+    try {
+      videoDetails = await youtubesearchapi.GetVideoDetails(extractedId);
+    } catch (err) {
+      console.error("YouTube API failed:", err);
       return NextResponse.json(
-        { message: "Wrong URL" },
-        { status: 411 }
+        { message: "Failed to fetch video details", error: err instanceof Error ? err.message : err },
+        { status: 500 }
       );
     }
 
-    const extractedId = match[1]; 
-    const res = await  youtubesearchapi.GetVideoDetails(extractedId);
-    console.log(res.title);
-    console.log(res.thumbnail.thumbnails);
-    const thumbnails=res.thumbnail.thumbnails;
-    thumbnails.sort((a:{width:number},b:{width:number})=>a.width<b.width?-1:1
-  )
+    const thumbnails = videoDetails.thumbnail?.thumbnails ?? [];
+    thumbnails.sort((a: { width: number }, b: { width: number }) => a.width - b.width);
 
-    const stream = await prismaClient.stream.create({
+    const smallImg =
+      thumbnails.length > 1
+        ? thumbnails[thumbnails.length - 2]?.url ?? ""
+        : thumbnails[0]?.url ?? "";
+    const bigImg = thumbnails[thumbnails.length - 1]?.url ?? "";
+
+    await prismaClient.stream.create({
       data: {
-        userId: data.createrId,
+        userId: data.creatorId,
         url: data.url,
         extractedId,
         type: "Youtube",
-        title:res.title ?? "can't find title",
-        smallImg:thumbnails.length>1? thumbnails[thumbnails.length-2].url :thumbnails [thumbnails.length-1] ?? "can't find thumbnail",
-        bigImg:thumbnails[thumbnails.length-1].url ?? " Can't find the thumbnail"
+        title: videoDetails.title ?? "Untitled",
+        smallImg,
+        bigImg,
       },
     });
 
-    return NextResponse.json({
-      message: "Stream created successfully",
-      id: stream.id,
+    const allStreams = await prismaClient.stream.findMany({
+      where: { userId: data.creatorId },
     });
-  } catch (e) {
-    console.error("Stream creation error:", e); 
+
+    return NextResponse.json(allStreams);
+  } catch (err) {
+    console.error("Stream creation error:", err);
     return NextResponse.json(
-      { message: "Error while adding a stream", error: e },
+      { message: "Error while adding a stream", error: err instanceof Error ? err.message : err },
       { status: 500 }
     );
   }
-}   
+}
 
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const createrId = url.searchParams.get("createrId");
+    const creatorId = url.searchParams.get("creatorId");
 
-    if (!createrId) {
-      return NextResponse.json(
-        { message: "createrId is required" },
-        { status: 400 }
-      );
+    if (!creatorId) {
+      return NextResponse.json({ message: "creatorId is required" }, { status: 400 });
     }
 
     const streams = await prismaClient.stream.findMany({
-      where: { userId: createrId },
+      where: { userId: creatorId },
     });
 
     return NextResponse.json(streams);
-  } catch (e) {
-    console.error("Stream fetch error:", e);
+  } catch (err) {
+    console.error("Stream fetch error:", err);
     return NextResponse.json(
-      { message: "Error fetching streams", error: e },
+      { message: "Error fetching streams", error: err instanceof Error ? err.message : err },
       { status: 500 }
     );
   }
