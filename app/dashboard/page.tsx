@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronUp, ChevronDown, Play, Pause, Users, Clock, Music } from "lucide-react";
 import axios from "axios";
 
+// Define the structure of each queue item
 interface QueueItem {
   id: string;
   title: string;
@@ -20,117 +21,93 @@ interface QueueItem {
   hasVoted?: "up" | "down" | null;
 }
 
-interface VideoPreview {
-  id: string;
-  title: string;
-  artist: string;
-  thumbnail: string;
-  duration: string;
+// Polyfill for axios.fetch to mimic fetch-like interface using Axios under the hood
+if (!(axios as any).fetch) {
+  (axios as any).fetch = async (url: string, init?: RequestInit & { data?: any }) => {
+    const method = (init?.method || "GET").toUpperCase();
+    try {
+      if (method === "GET") {
+        const res = await axios.get(url);
+        return { ok: res.status >= 200 && res.status < 300, status: res.status, json: async () => res.data };
+      } else {
+        const data = init?.body ? JSON.parse(init.body as string) : init?.data;
+        const res = await axios({ url, method, data, headers: init?.headers });
+        return { ok: res.status >= 200 && res.status < 300, status: res.status, json: async () => res.data };
+      }
+    } catch (error: any) {
+      const status = error?.response?.status ?? 500;
+      return { ok: false, status, json: async () => ({ error: true, message: error?.message }) };
+    }
+  };
 }
 
 export default function MusicVotingApp() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [videoPreview, setVideoPreview] = useState<VideoPreview | null>(null);
+  const [videoPreview, setVideoPreview] = useState<any>(null);
   const [currentPlaying, setCurrentPlaying] = useState<QueueItem | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const sortQueue = (songs: QueueItem[]) => [...songs].sort((a, b) => b.votes - a.votes);
-
+  // Fetch the queue on mount
   useEffect(() => {
     fetchStreams();
   }, []);
 
+  // Fetch function for the song queue
   const fetchStreams = async () => {
     try {
       setIsLoading(true);
       setError(null);
+      const res: any = await (axios as any).fetch("/api/streams/my", { method: "GET" });
+      if ("ok" in res && res.ok === false) {
+        throw Object.assign(new Error("Fetch failed"), { status: (res as any).status });
+      }
+      const responseData =
+        "json" in res && typeof (res as any).json === "function" ? await (res as any).json() : (res as any).data;
 
-      const response = await axios.get("/api/streams", {
-        params: { creatorId: "6e210da3-fe63-4f5f-a9e0-37c1b1efccb4" },
-      });
-
-      let streamsData: QueueItem[] = [];
-      if (Array.isArray(response.data)) streamsData = response.data;
-      else if (response.data?.streams) streamsData = response.data.streams;
-      else if (response.data?.data) streamsData = response.data.data;
-
-      if (streamsData.length === 0) {
-        streamsData = [
-          {
-            id: "1",
-            title: "Bohemian Rhapsody",
-            artist: "Queen",
-            thumbnail: "/queen-bohemian-rhapsody-album-cover.png",
-            duration: "5:55",
-            votes: 42,
-            videoId: "fJ9rUzIMcZQ",
-            submittedBy: "MusicLover92",
-            hasVoted: null,
-          },
-          {
-            id: "2",
-            title: "Stairway to Heaven",
-            artist: "Led Zeppelin",
-            thumbnail: "/led-zeppelin-stairway-to-heaven-album-cover.jpg",
-            duration: "8:02",
-            votes: 38,
-            videoId: "QkF3oxziUI4",
-            submittedBy: "RockFan2000",
-            hasVoted: null,
-          },
-        ];
+      let streamsData: any[] = [];
+      if (Array.isArray(responseData)) {
+        streamsData = responseData;
+      } else if (responseData && Array.isArray((responseData as any).streams)) {
+        streamsData = (responseData as any).streams;
+      } else if (responseData && Array.isArray((responseData as any).data)) {
+        streamsData = (responseData as any).data;
+      } else {
+        throw new Error("Invalid response format from API");
       }
 
-      setQueue(sortQueue(streamsData));
+      const sortedStreams = streamsData.sort((a: QueueItem, b: QueueItem) => b.votes - a.votes);
+      setQueue(sortedStreams);
     } catch (err) {
-      console.error("Failed to fetch streams:", err);
-      setError("Failed to load streams. Using demo data.");
-      setQueue([
-        {
-          id: "1",
-          title: "Bohemian Rhapsody",
-          artist: "Queen",
-          thumbnail: "/queen-bohemian-rhapsody-album-cover.png",
-          duration: "5:55",
-          votes: 42,
-          videoId: "fJ9rUzIMcZQ",
-          submittedBy: "MusicLover92",
-          hasVoted: null,
-        },
-        {
-          id: "2",
-          title: "Stairway to Heaven",
-          artist: "Led Zeppelin",
-          thumbnail: "/led-zeppelin-stairway-to-heaven-album-cover.jpg",
-          duration: "8:02",
-          votes: 38,
-          videoId: "QkF3oxziUI4",
-          submittedBy: "RockFan2000",
-          hasVoted: null,
-        },
-      ]);
+      setError("Failed to load streams from API. Please ensure the backend is running.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Whenever the queue or currentPlaying changes, sync the current playing song (if not already set)
   useEffect(() => {
-    if (!currentPlaying && queue.length > 0) setCurrentPlaying(queue[0]);
+    if (!currentPlaying && queue.length > 0) {
+      setCurrentPlaying(queue[0]);
+    }
   }, [queue, currentPlaying]);
 
+  // Helper: Extract YouTube video ID
   const extractVideoId = (url: string) => {
     const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/;
     const match = url.match(regex);
     return match ? match[1] : null;
   };
 
-  const handleUrlChange = (url: string) => {
+  // On YouTube URL input change: try to extract and build a preview
+  const handleUrlChange = async (url: string) => {
     setYoutubeUrl(url);
     const videoId = extractVideoId(url);
+
     if (videoId) {
+      // In production, fetch actual metadata from YouTube Data API here
       setVideoPreview({
         id: videoId,
         title: "Sample Video Title",
@@ -143,216 +120,294 @@ export default function MusicVotingApp() {
     }
   };
 
-  const handleSubmitSong = async () => {
-    if (!youtubeUrl) return;
+  // Submit a new song from the preview (local-only, replace with API call for production)
+  const handleSubmitSong = () => {
+    if (videoPreview) {
+      const newSong: QueueItem = {
+        id: Date.now().toString(),
+        title: videoPreview.title,
+        artist: videoPreview.artist,
+        thumbnail: videoPreview.thumbnail,
+        duration: videoPreview.duration,
+        votes: 0,
+        videoId: videoPreview.id,
+        submittedBy: "You",
+        hasVoted: null,
+      };
 
-    const videoId = extractVideoId(youtubeUrl);
-    if (!videoId) {
-      alert("Invalid YouTube URL");
-      return;
-    }
-
-    try {
-      // POST new stream
-      const postResponse = await fetch("/api/streams", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          creatorId: "6e210da3-fe63-4f5f-a9e0-37c1b1efccb4",
-          url: youtubeUrl,
-        }),
-      });
-
-      if (!postResponse.ok) throw new Error("Failed to submit song");
-
-      // Fetch updated streams queue
-      const getResponse = await fetch(
-        `/api/streams?creatorId=6e210da3-fe63-4f5f-a9e0-37c1b1efccb4`
-      );
-      if (!getResponse.ok) throw new Error("Failed to fetch updated queue");
-
-      const updatedQueue = await getResponse.json();
-      setQueue(sortQueue(updatedQueue));
+      setQueue((prev) => [...prev, newSong].sort((a, b) => b.votes - a.votes));
       setYoutubeUrl("");
       setVideoPreview(null);
-    } catch (err) {
-      console.error("Failed to submit song or refresh queue:", err);
-      alert("Failed to submit or refresh the song queue. Please try again.");
     }
   };
 
-  const handleVote = async (streamID: string, voteType: "up" | "down") => {
-    try {
-      const endpoint = voteType === "up" ? "/api/streams/upvotes" : "/api/streams/downvotes";
-      await axios.post(endpoint, { streamID });
+  // Voting handler: upvote or downvote a given song
+ const handleVote = async (songId: string, voteType: "up" | "down") => {
+  try {
+    const endpoint =
+      voteType === "up" ? "/api/streams/upvotes" : "/api/streams/downvotes";
 
-      setQueue((prev) =>
-        sortQueue(
-          prev.map((song) => {
-            if (song.id === streamID) {
-              let newVotes = song.votes;
-              let newHasVoted: "up" | "down" | null = voteType;
+    console.log(`[v0] Sending ${voteType}vote for song ${songId} to ${endpoint}`);
 
-              if (song.hasVoted === voteType) {
-                newVotes += voteType === "up" ? -1 : 1;
-                newHasVoted = null;
-              } else if (song.hasVoted) {
-                newVotes += voteType === "up" ? 2 : -2;
-              } else {
-                newVotes += voteType === "up" ? 1 : -1;
-              }
+    // Send vote to API with correct key
+    await axios.post(endpoint, { streamId: songId });  // ✅ must match Zod schema
 
-              return { ...song, votes: newVotes, hasVoted: newHasVoted };
+    console.log(`[v0] ${voteType}vote successful`);
+
+    // Update local state optimistically...
+    setQueue((prev) =>
+      prev
+        .map((song) => {
+          if (song.id === songId) {
+            let newVotes = song.votes;
+            let newHasVoted: "up" | "down" | null = voteType;
+
+            if (song.hasVoted === voteType) {
+              newVotes += voteType === "up" ? -1 : 1;
+              newHasVoted = null;
+            } else if (song.hasVoted) {
+              newVotes += voteType === "up" ? 2 : -2;
+            } else {
+              newVotes += voteType === "up" ? 1 : -1;
             }
-            return song;
-          })
-        )
-      );
-    } catch (err) {
-      console.error(`Failed to ${voteType}vote:`, err);
-    }
-  };
 
+            return { ...song, votes: newVotes, hasVoted: newHasVoted };
+          }
+          return song;
+        })
+        .sort((a, b) => b.votes - a.votes)
+    );
+  } catch (err) {
+    console.error(`[v0] Failed to ${voteType}vote:`, err);
+  }
+};
+
+
+  // Player controls: advance to next/previous in queue
   const playNext = () => {
-    const index = queue.findIndex((s) => s.id === currentPlaying?.id);
-    if (index < queue.length - 1) setCurrentPlaying(queue[index + 1]);
+    const currentIndex = queue.findIndex((song) => song.id === currentPlaying?.id);
+    if (currentIndex < queue.length - 1) {
+      setCurrentPlaying(queue[currentIndex + 1]);
+    }
   };
 
   const playPrevious = () => {
-    const index = queue.findIndex((s) => s.id === currentPlaying?.id);
-    if (index > 0) setCurrentPlaying(queue[index - 1]);
+    const currentIndex = queue.findIndex((song) => song.id === currentPlaying?.id);
+    if (currentIndex > 0) {
+      setCurrentPlaying(queue[currentIndex - 1]);
+    }
   };
 
-  if (isLoading)
+  // Loading UI
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p>Loading streams...</p>
+          <p className="text-muted-foreground">Loading streams...</p>
         </div>
       </div>
     );
+  }
 
+  // Error UI
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-destructive mb-4">{error}</p>
+          <Button onClick={fetchStreams} variant="outline">
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App UI
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b sticky top-0 bg-card p-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <Music className="w-6 h-6" />
-          <h1 className="text-xl font-bold">StreamBeats</h1>
-        </div>
-        <div className="flex gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <Users className="w-4 h-4" /> 1,247 listeners
-          </div>
-          <div className="flex items-center gap-1">
-            <Clock className="w-4 h-4" /> Live
+      {/* Header */}
+      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
+        <div className="container mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+                <Music className="w-6 h-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-balance">StreamBeats</h1>
+                <p className="text-sm text-muted-foreground">Community Music Voting</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                <span>1,247 listeners</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                <span>Live</span>
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="container mx-auto px-6 py-8 grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Now Playing */}
-          {currentPlaying && (
-            <Card className="p-6 bg-card border border-border">
-              <div className="aspect-video bg-muted rounded-lg overflow-hidden mb-4">
-                <iframe
-                  width="100%"
-                  height="100%"
-                  src={`https://www.youtube.com/embed/${currentPlaying.videoId}?autoplay=${isPlaying ? 1 : 0}`}
-                  title={currentPlaying.title}
-                  frameBorder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
+      <div className="container mx-auto px-6 py-8">
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Currently Playing */}
+            <Card className="p-6 bg-card border-border">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-3 h-3 bg-primary rounded-full animate-pulse"></div>
+                <h2 className="text-xl font-semibold">Now Playing</h2>
               </div>
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="font-semibold">{currentPlaying.title}</h3>
-                  <p className="text-sm text-muted-foreground">{currentPlaying.artist}</p>
-                  <p className="text-xs text-muted-foreground">Submitted by {currentPlaying.submittedBy}</p>
+              {currentPlaying && (
+                <div className="space-y-6">
+                  {/* YouTube Embed */}
+                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      src={`https://www.youtube.com/embed/${currentPlaying.videoId}?autoplay=${isPlaying ? 1 : 0}`}
+                      title={currentPlaying.title}
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="w-full h-full"
+                    />
+                  </div>
+
+                  {/* Player Controls */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-balance">{currentPlaying.title}</h3>
+                      <p className="text-muted-foreground">{currentPlaying.artist}</p>
+                      <p className="text-sm text-muted-foreground">Submitted by {currentPlaying.submittedBy}</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <Button variant="outline" size="sm" onClick={playPrevious}>
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsPlaying(!isPlaying)}
+                        className="w-12 h-12 rounded-full"
+                      >
+                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={playNext}>
+                        Next
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button onClick={playPrevious} size="sm">Previous</Button>
-                  <Button onClick={() => setIsPlaying(!isPlaying)} size="sm">
-                    {isPlaying ? <Pause /> : <Play />}
+              )}
+            </Card>
+
+            {/* Submit New Song */}
+            <Card className="p-6 bg-card border-border">
+              <h2 className="text-xl font-semibold mb-6">Submit a Song</h2>
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="Paste YouTube URL here..."
+                    value={youtubeUrl}
+                    onChange={(e) => handleUrlChange(e.target.value)}
+                    className="flex-1 bg-input border-border"
+                  />
+                  <Button
+                    onClick={handleSubmitSong}
+                    disabled={!videoPreview}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    Submit
                   </Button>
-                  <Button onClick={playNext} size="sm">Next</Button>
                 </div>
+                {videoPreview && (
+                  <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                    <img
+                      src={videoPreview.thumbnail || "/placeholder.svg"}
+                      alt={videoPreview.title}
+                      className="w-16 h-16 rounded-md object-cover"
+                    />
+                    <div className="flex-1">
+                      <h4 className="font-medium text-balance">{videoPreview.title}</h4>
+                      <p className="text-sm text-muted-foreground">{videoPreview.artist}</p>
+                      <p className="text-sm text-muted-foreground">{videoPreview.duration}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
-          )}
+          </div>
 
-          {/* Submit Song */}
-          <Card className="p-6 bg-card border border-border">
-            <h2 className="text-lg font-semibold mb-4">Submit a Song</h2>
-            <div className="flex gap-2 mb-4">
-              <Input
-                placeholder="YouTube URL"
-                value={youtubeUrl}
-                onChange={(e) => handleUrlChange(e.target.value)}
-              />
-              <Button onClick={handleSubmitSong} disabled={!videoPreview}>Submit</Button>
-            </div>
-            {videoPreview && (
-              <div className="flex items-center gap-4 p-2 bg-muted rounded-lg">
-                <img src={videoPreview.thumbnail} alt={videoPreview.title} className="w-16 h-16 object-cover rounded" />
-                <div>
-                  <p className="font-medium">{videoPreview.title}</p>
-                  <p className="text-sm text-muted-foreground">{videoPreview.artist}</p>
-                  <p className="text-xs text-muted-foreground">{videoPreview.duration}</p>
-                </div>
+          {/* Queue Sidebar */}
+          <div className="space-y-6">
+            <Card className="p-6 bg-card border-border">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold">Queue</h2>
+                <Badge variant="secondary" className="bg-secondary text-secondary-foreground">
+                  {queue.length} songs
+                </Badge>
               </div>
-            )}
-          </Card>
-        </div>
-
-        {/* Queue */}
-        <div className="space-y-4">
-          <Card className="p-6 bg-card border border-border">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="font-semibold text-lg">Queue</h2>
-              <Badge>{queue.length} songs</Badge>
-            </div>
-            <div className="space-y-2 max-h-[600px] overflow-y-auto">
-              {queue.map((song, idx) => (
-                <div
-                  key={song.id}
-                  className={`flex items-center gap-2 p-2 rounded-lg ${
-                    currentPlaying?.id === song.id ? "bg-primary/10" : "bg-muted/50 hover:bg-muted"
-                  }`}
-                >
-                  <div className="w-6 h-6 flex items-center justify-center text-xs font-medium">{idx + 1}</div>
-                  <img src={song.thumbnail} alt={song.title} className="w-12 h-12 object-cover rounded" />
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate font-medium">{song.title}</p>
-                    <p className="truncate text-xs text-muted-foreground">{song.artist}</p>
+              <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                {queue.map((song, index) => (
+                  <div
+                    key={song.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                      currentPlaying?.id === song.id
+                        ? "bg-primary/10 border border-primary/20"
+                        : "bg-muted/50 hover:bg-muted"
+                    }`}
+                  >
+                    <div className="flex items-center justify-center w-8 h-8 bg-secondary rounded-full text-sm font-medium">
+                      {index + 1}
+                    </div>
+                    <img
+                      src={song.thumbnail || "/placeholder.svg"}
+                      alt={song.title}
+                      className="w-12 h-12 rounded-md object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-sm text-balance truncate">{song.title}</h4>
+                      <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+                      <p className="text-xs text-muted-foreground">{song.duration}</p>
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleVote(song.id, "up")}
+                        className={`w-8 h-8 p-0 ${song.hasVoted === "up" ? "text-primary" : "text-muted-foreground"}`}
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </Button>
+                      <span
+                        className={`text-sm font-medium ${
+                          song.votes > 0 ? "text-green-400" : song.votes < 0 ? "text-red-400" : "text-muted-foreground"
+                        }`}
+                      >
+                        {song.votes}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleVote(song.id, "down")}
+                        className={`w-8 h-8 p-0 ${song.hasVoted === "down" ? "text-destructive" : "text-muted-foreground"}`}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleVote(song.id, "up")}
-                      className={song.hasVoted === "up" ? "text-primary" : "text-muted-foreground"}
-                    >
-                      <ChevronUp />
-                    </Button>
-                    <span className={`${song.votes > 0 ? "text-green-400" : song.votes < 0 ? "text-red-400" : "text-muted-foreground"}`}>
-                      {song.votes}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleVote(song.id, "down")}
-                      className={song.hasVoted === "down" ? "text-destructive" : "text-muted-foreground"}
-                    >
-                      <ChevronDown />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+                ))}
+              </div>
+            </Card>
+          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prismaClient } from "../../lib/db";
-import youtubesearchapi from "youtube-search-api";
 
 const YT_REGEX =
   /^(?:https?:\/\/)?(?:www\.)?(?:m\.)?(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/))([a-zA-Z0-9_-]{11})(?:\S+)?$/;
@@ -10,6 +9,38 @@ const CreateStreamsSchema = z.object({
   creatorId: z.string(),
   url: z.string(),
 });
+
+async function fetchVideoDetails(videoId: string) {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+    );
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch video details: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+
+    // Thumbnails are not in oEmbed, but we can construct them manually
+    // Standard YouTube thumbnail URLs
+    const smallImg = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`; // medium quality
+    const bigImg = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`; // high quality
+
+    return {
+      title: data.title ?? "Untitled",
+      smallImg,
+      bigImg,
+    };
+  } catch (err) {
+    console.error("Failed to fetch YouTube details manually:", err);
+    return {
+      title: "Untitled",
+      smallImg: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+      bigImg: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    };
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,29 +51,14 @@ export async function POST(req: NextRequest) {
 
     const match = data.url.match(YT_REGEX);
     if (!match) {
-      return NextResponse.json({ message: "Invalid YouTube URL" }, { status: 400 });
+      return NextResponse.json(
+        { message: "Invalid YouTube URL" },
+        { status: 400 }
+      );
     }
     const extractedId = match[1];
 
-    let videoDetails;
-    try {
-      videoDetails = await youtubesearchapi.GetVideoDetails(extractedId);
-    } catch (err) {
-      console.error("YouTube API failed:", err);
-      return NextResponse.json(
-        { message: "Failed to fetch video details", error: err instanceof Error ? err.message : err },
-        { status: 500 }
-      );
-    }
-
-    const thumbnails = videoDetails.thumbnail?.thumbnails ?? [];
-    thumbnails.sort((a: { width: number }, b: { width: number }) => a.width - b.width);
-
-    const smallImg =
-      thumbnails.length > 1
-        ? thumbnails[thumbnails.length - 2]?.url ?? ""
-        : thumbnails[0]?.url ?? "";
-    const bigImg = thumbnails[thumbnails.length - 1]?.url ?? "";
+    const videoDetails = await fetchVideoDetails(extractedId);
 
     await prismaClient.stream.create({
       data: {
@@ -50,9 +66,9 @@ export async function POST(req: NextRequest) {
         url: data.url,
         extractedId,
         type: "Youtube",
-        title: videoDetails.title ?? "Untitled",
-        smallImg,
-        bigImg,
+        title: videoDetails.title,
+        smallImg: videoDetails.smallImg,
+        bigImg: videoDetails.bigImg,
       },
     });
 
@@ -64,7 +80,10 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("Stream creation error:", err);
     return NextResponse.json(
-      { message: "Error while adding a stream", error: err instanceof Error ? err.message : err },
+      {
+        message: "Error while adding a stream",
+        error: err instanceof Error ? err.message : err,
+      },
       { status: 500 }
     );
   }
@@ -76,7 +95,10 @@ export async function GET(req: NextRequest) {
     const creatorId = url.searchParams.get("creatorId");
 
     if (!creatorId) {
-      return NextResponse.json({ message: "creatorId is required" }, { status: 400 });
+      return NextResponse.json(
+        { message: "creatorId is required" },
+        { status: 400 }
+      );
     }
 
     const streams = await prismaClient.stream.findMany({
@@ -87,7 +109,10 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("Stream fetch error:", err);
     return NextResponse.json(
-      { message: "Error fetching streams", error: err instanceof Error ? err.message : err },
+      {
+        message: "Error fetching streams",
+        error: err instanceof Error ? err.message : err,
+      },
       { status: 500 }
     );
   }
