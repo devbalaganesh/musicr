@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const downvoteSchema = z.object({
-  streamID: z.string(),
+  streamID: z.string()
 });
 
 export async function POST(req: NextRequest) {
